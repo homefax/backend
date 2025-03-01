@@ -6,6 +6,7 @@ import { AppService } from "./app.service";
 import { AuthModule } from "./auth/auth.module";
 import { BlockchainModule } from "./blockchain/blockchain.module";
 import { UserModule } from "./user/user.module";
+import { EthStorageModule } from "./ethstorage/ethstorage.module";
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { UserModule } from "./user/user.module";
     AuthModule,
     UserModule,
     BlockchainModule,
+    EthStorageModule,
     // PropertyModule, // Uncomment when implemented
     // ReportModule,   // Uncomment when implemented
   ],
