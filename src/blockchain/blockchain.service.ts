@@ -1,7 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ethers } from 'ethers';
-import * as HomeFaxArtifact from '../../../contracts/artifacts/contracts/HomeFax.sol/HomeFax.json';
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { ethers } from "ethers";
+import * as HomeFaxArtifact from "../../../contracts/artifacts/contracts/HomeFax.sol/HomeFax.json";
 
 @Injectable()
 export class BlockchainService implements OnModuleInit {
@@ -15,24 +15,28 @@ export class BlockchainService implements OnModuleInit {
   async onModuleInit() {
     try {
       // Initialize provider
-      const rpcUrl = this.configService.get<string>('ETHEREUM_RPC_URL');
+      const rpcUrl = this.configService.get<string>("ETHEREUM_RPC_URL");
       this.provider = new ethers.JsonRpcProvider(rpcUrl);
 
       // Initialize wallet
-      const privateKey = this.configService.get<string>('ETHEREUM_PRIVATE_KEY');
+      const privateKey = this.configService.get<string>("ETHEREUM_PRIVATE_KEY");
       this.wallet = new ethers.Wallet(privateKey, this.provider);
-      
+
       // Initialize contract
-      const contractAddress = this.configService.get<string>('HOMEFAX_CONTRACT_ADDRESS');
+      const contractAddress = this.configService.get<string>(
+        "HOMEFAX_CONTRACT_ADDRESS"
+      );
       this.homeFaxContract = new ethers.Contract(
         contractAddress,
         HomeFaxArtifact.abi,
         this.wallet
       );
 
-      this.logger.log('Blockchain service initialized successfully');
+      this.logger.log("Blockchain service initialized successfully");
     } catch (error) {
-      this.logger.error(`Failed to initialize blockchain service: ${error.message}`);
+      this.logger.error(
+        `Failed to initialize blockchain service: ${error.message}`
+      );
       throw error;
     }
   }
@@ -44,7 +48,8 @@ export class BlockchainService implements OnModuleInit {
   async authorizeUser(userAddress: string): Promise<boolean> {
     try {
       // Check if user is already authorized
-      const isAuthorized = await this.homeFaxContract.isAuthorizedUser(userAddress);
+      const isAuthorized =
+        await this.homeFaxContract.isAuthorizedUser(userAddress);
       if (isAuthorized) {
         return true;
       }
@@ -52,11 +57,13 @@ export class BlockchainService implements OnModuleInit {
       // Authorize user
       const tx = await this.homeFaxContract.authorizeUser(userAddress);
       await tx.wait();
-      
+
       this.logger.log(`User ${userAddress} authorized successfully`);
       return true;
     } catch (error) {
-      this.logger.error(`Failed to authorize user ${userAddress}: ${error.message}`);
+      this.logger.error(
+        `Failed to authorize user ${userAddress}: ${error.message}`
+      );
       return false;
     }
   }
@@ -69,11 +76,13 @@ export class BlockchainService implements OnModuleInit {
     try {
       const tx = await this.homeFaxContract.deauthorizeUser(userAddress);
       await tx.wait();
-      
+
       this.logger.log(`User ${userAddress} deauthorized successfully`);
       return true;
     } catch (error) {
-      this.logger.error(`Failed to deauthorize user ${userAddress}: ${error.message}`);
+      this.logger.error(
+        `Failed to deauthorize user ${userAddress}: ${error.message}`
+      );
       return false;
     }
   }
@@ -109,7 +118,7 @@ export class BlockchainService implements OnModuleInit {
       // Extract property ID from event
       const event = receipt.logs[0];
       const propertyId = event.args[0];
-      
+
       this.logger.log(`Property created with ID ${propertyId}`);
       return Number(propertyId);
     } catch (error) {
@@ -120,22 +129,25 @@ export class BlockchainService implements OnModuleInit {
 
   /**
    * Creates a report on the HomeFax contract
-   * @param userAddress The Ethereum address of the report creator
+   * @param authorAddress The Ethereum address of the home inspector (author)
+   * @param ownerAddress The Ethereum address of the user who paid for the inspection (owner)
    * @param propertyId The ID of the property the report is for
    * @param reportType The type of report
    * @param reportHash The IPFS hash of the report content
    * @param price The price to purchase access to this report
    */
   async createReport(
-    userAddress: string,
+    authorAddress: string,
+    ownerAddress: string,
     propertyId: number,
     reportType: string,
     reportHash: string,
     price: string
   ): Promise<number> {
     try {
-      // Ensure user is authorized
-      await this.authorizeUser(userAddress);
+      // Ensure users are authorized
+      await this.authorizeUser(authorAddress);
+      await this.authorizeUser(ownerAddress);
 
       // Convert price to wei
       const priceInWei = ethers.parseEther(price);
@@ -145,6 +157,8 @@ export class BlockchainService implements OnModuleInit {
         propertyId,
         reportType,
         reportHash,
+        authorAddress,
+        ownerAddress,
         priceInWei
       );
       const receipt = await tx.wait();
@@ -152,8 +166,10 @@ export class BlockchainService implements OnModuleInit {
       // Extract report ID from event
       const event = receipt.logs[0];
       const reportId = event.args[0];
-      
-      this.logger.log(`Report created with ID ${reportId}`);
+
+      this.logger.log(
+        `Report created with ID ${reportId}, author: ${authorAddress}, owner: ${ownerAddress}`
+      );
       return Number(reportId);
     } catch (error) {
       this.logger.error(`Failed to create report: ${error.message}`);
@@ -181,10 +197,10 @@ export class BlockchainService implements OnModuleInit {
 
       // Purchase report using contract owner's wallet (backend)
       const tx = await this.homeFaxContract.purchaseReport(reportId, {
-        value: priceInWei
+        value: priceInWei,
       });
       await tx.wait();
-      
+
       this.logger.log(`Report ${reportId} purchased successfully`);
       return true;
     } catch (error) {
@@ -205,7 +221,7 @@ export class BlockchainService implements OnModuleInit {
 
       // Get property
       const property = await this.homeFaxContract.getProperty(propertyId);
-      
+
       return {
         id: Number(property.id),
         propertyAddress: property.propertyAddress,
@@ -215,7 +231,7 @@ export class BlockchainService implements OnModuleInit {
         owner: property.owner,
         createdAt: new Date(Number(property.createdAt) * 1000),
         updatedAt: new Date(Number(property.updatedAt) * 1000),
-        isVerified: property.isVerified
+        isVerified: property.isVerified,
       };
     } catch (error) {
       this.logger.error(`Failed to get property: ${error.message}`);
@@ -235,16 +251,17 @@ export class BlockchainService implements OnModuleInit {
 
       // Get report
       const report = await this.homeFaxContract.getReport(reportId);
-      
+
       return {
         id: Number(report.id),
         propertyId: Number(report.propertyId),
         reportType: report.reportType,
         reportHash: report.reportHash,
-        creator: report.creator,
+        author: report.author,
+        owner: report.owner,
         price: ethers.formatEther(report.price),
         createdAt: new Date(Number(report.createdAt) * 1000),
-        isVerified: report.isVerified
+        isVerified: report.isVerified,
       };
     } catch (error) {
       this.logger.error(`Failed to get report: ${error.message}`);
@@ -257,14 +274,17 @@ export class BlockchainService implements OnModuleInit {
    * @param userAddress The Ethereum address of the user
    * @param reportId The ID of the report
    */
-  async getReportContent(userAddress: string, reportId: number): Promise<string> {
+  async getReportContent(
+    userAddress: string,
+    reportId: number
+  ): Promise<string> {
     try {
       // Ensure user is authorized
       await this.authorizeUser(userAddress);
 
       // Get report content
       const reportHash = await this.homeFaxContract.getReportContent(reportId);
-      
+
       // In a real application, you would fetch the content from IPFS using this hash
       return reportHash;
     } catch (error) {
@@ -283,9 +303,10 @@ export class BlockchainService implements OnModuleInit {
       await this.authorizeUser(userAddress);
 
       // Get user properties
-      const propertyIds = await this.homeFaxContract.getUserProperties(userAddress);
-      
-      return propertyIds.map(id => Number(id));
+      const propertyIds =
+        await this.homeFaxContract.getUserProperties(userAddress);
+
+      return propertyIds.map((id) => Number(id));
     } catch (error) {
       this.logger.error(`Failed to get user properties: ${error.message}`);
       throw error;
@@ -297,15 +318,19 @@ export class BlockchainService implements OnModuleInit {
    * @param userAddress The Ethereum address of the user
    * @param propertyId The ID of the property
    */
-  async getPropertyReports(userAddress: string, propertyId: number): Promise<number[]> {
+  async getPropertyReports(
+    userAddress: string,
+    propertyId: number
+  ): Promise<number[]> {
     try {
       // Ensure user is authorized
       await this.authorizeUser(userAddress);
 
       // Get property reports
-      const reportIds = await this.homeFaxContract.getPropertyReports(propertyId);
-      
-      return reportIds.map(id => Number(id));
+      const reportIds =
+        await this.homeFaxContract.getPropertyReports(propertyId);
+
+      return reportIds.map((id) => Number(id));
     } catch (error) {
       this.logger.error(`Failed to get property reports: ${error.message}`);
       throw error;
@@ -317,15 +342,23 @@ export class BlockchainService implements OnModuleInit {
    * @param userAddress The Ethereum address of the user
    * @param reportId The ID of the report
    */
-  async hasPurchasedReport(userAddress: string, reportId: number): Promise<boolean> {
+  async hasPurchasedReport(
+    userAddress: string,
+    reportId: number
+  ): Promise<boolean> {
     try {
       // Ensure user is authorized
       await this.authorizeUser(userAddress);
 
       // Check if user has purchased report
-      return await this.homeFaxContract.hasPurchasedReport(userAddress, reportId);
+      return await this.homeFaxContract.hasPurchasedReport(
+        userAddress,
+        reportId
+      );
     } catch (error) {
-      this.logger.error(`Failed to check if user has purchased report: ${error.message}`);
+      this.logger.error(
+        `Failed to check if user has purchased report: ${error.message}`
+      );
       throw error;
     }
   }
