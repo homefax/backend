@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ethers } from "ethers";
 import * as HomeFaxArtifact from "../../../contracts/artifacts/contracts/HomeFax.sol/HomeFax.json";
+import { EthStorageService } from "../ethstorage/ethstorage.service";
 
 @Injectable()
 export class BlockchainService implements OnModuleInit {
@@ -10,7 +11,10 @@ export class BlockchainService implements OnModuleInit {
   private wallet: ethers.Wallet;
   private homeFaxContract: ethers.Contract;
 
-  constructor(private configService: ConfigService) {}
+  constructor(
+    private configService: ConfigService,
+    private ethStorageService: EthStorageService
+  ) {}
 
   async onModuleInit() {
     try {
@@ -20,12 +24,22 @@ export class BlockchainService implements OnModuleInit {
 
       // Initialize wallet
       const privateKey = this.configService.get<string>("ETHEREUM_PRIVATE_KEY");
+      if (!privateKey) {
+        throw new Error(
+          "ETHEREUM_PRIVATE_KEY is not defined in environment variables"
+        );
+      }
       this.wallet = new ethers.Wallet(privateKey, this.provider);
 
       // Initialize contract
       const contractAddress = this.configService.get<string>(
         "HOMEFAX_CONTRACT_ADDRESS"
       );
+      if (!contractAddress) {
+        throw new Error(
+          "HOMEFAX_CONTRACT_ADDRESS is not defined in environment variables"
+        );
+      }
       this.homeFaxContract = new ethers.Contract(
         contractAddress,
         HomeFaxArtifact.abi,
@@ -133,7 +147,7 @@ export class BlockchainService implements OnModuleInit {
    * @param ownerAddress The Ethereum address of the user who paid for the inspection (owner)
    * @param propertyId The ID of the property the report is for
    * @param reportType The type of report
-   * @param reportHash The IPFS hash of the report content
+   * @param reportContent The content of the report
    * @param price The price to purchase access to this report
    */
   async createReport(
@@ -141,13 +155,24 @@ export class BlockchainService implements OnModuleInit {
     ownerAddress: string,
     propertyId: number,
     reportType: string,
-    reportHash: string,
+    reportContent: string | Buffer,
     price: string
   ): Promise<number> {
     try {
       // Ensure users are authorized
       await this.authorizeUser(authorAddress);
       await this.authorizeUser(ownerAddress);
+
+      // Upload report content to EthStorage
+      const fileName = `report_${propertyId}_${reportType}_${Date.now()}.json`;
+      const fileId = await this.ethStorageService.uploadFile(
+        fileName,
+        reportContent
+      );
+
+      this.logger.log(
+        `Report content uploaded to EthStorage with ID: ${fileId}`
+      );
 
       // Convert price to wei
       const priceInWei = ethers.parseEther(price);
@@ -156,7 +181,7 @@ export class BlockchainService implements OnModuleInit {
       const tx = await this.homeFaxContract.createReport(
         propertyId,
         reportType,
-        reportHash,
+        fileId, // Use EthStorage fileId instead of IPFS hash
         authorAddress,
         ownerAddress,
         priceInWei
@@ -168,7 +193,7 @@ export class BlockchainService implements OnModuleInit {
       const reportId = event.args[0];
 
       this.logger.log(
-        `Report created with ID ${reportId}, author: ${authorAddress}, owner: ${ownerAddress}`
+        `Report created with ID ${reportId}, author: ${authorAddress}, owner: ${ownerAddress}, EthStorage fileId: ${fileId}`
       );
       return Number(reportId);
     } catch (error) {
@@ -277,16 +302,22 @@ export class BlockchainService implements OnModuleInit {
   async getReportContent(
     userAddress: string,
     reportId: number
-  ): Promise<string> {
+  ): Promise<Buffer> {
     try {
       // Ensure user is authorized
       await this.authorizeUser(userAddress);
 
-      // Get report content
-      const reportHash = await this.homeFaxContract.getReportContent(reportId);
+      // Get report content hash (which is now the EthStorage fileId)
+      const fileId = await this.homeFaxContract.getReportContent(reportId);
 
-      // In a real application, you would fetch the content from IPFS using this hash
-      return reportHash;
+      // Fetch the content from EthStorage using the fileId
+      const reportContent = await this.ethStorageService.downloadFile(fileId);
+
+      this.logger.log(
+        `Report content downloaded from EthStorage with ID: ${fileId}`
+      );
+
+      return reportContent;
     } catch (error) {
       this.logger.error(`Failed to get report content: ${error.message}`);
       throw error;

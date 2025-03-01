@@ -78,7 +78,7 @@ export class BlockchainController {
     reportData: {
       propertyId: number;
       reportType: string;
-      reportHash: string;
+      reportContent: string;
       authorAddress: string;
       ownerAddress: string;
       price: string;
@@ -88,7 +88,7 @@ export class BlockchainController {
       const {
         propertyId,
         reportType,
-        reportHash,
+        reportContent,
         authorAddress,
         ownerAddress,
         price,
@@ -107,12 +107,16 @@ export class BlockchainController {
         throw new BadRequestException("Owner address is required");
       }
 
+      if (!reportContent) {
+        throw new BadRequestException("Report content is required");
+      }
+
       const reportId = await this.blockchainService.createReport(
         authorAddress,
         ownerAddress,
         propertyId,
         reportType,
-        reportHash,
+        reportContent,
         price
       );
 
@@ -238,18 +242,20 @@ export class BlockchainController {
         throw new BadRequestException("User wallet address is required");
       }
 
-      const reportHash = await this.blockchainService.getReportContent(
+      const reportContent = await this.blockchainService.getReportContent(
         userAddress,
         reportId
       );
 
-      // In a real application, you would fetch the content from IPFS using this hash
+      // Convert Buffer to base64 for transmission
+      const base64Content = reportContent.toString("base64");
+
       return {
         success: true,
-        reportHash,
-        // This would be replaced with actual content from IPFS
-        content: `This is a placeholder for report content with hash: ${reportHash}`,
-        contentType: "text/plain",
+        reportId,
+        content: base64Content,
+        contentType: "application/json",
+        message: "Report content retrieved successfully from EthStorage",
       };
     } catch (error) {
       throw new BadRequestException(
